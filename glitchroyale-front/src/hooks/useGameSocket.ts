@@ -1,27 +1,30 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export const useGameSocket = (url: string) => {
-  // --- ESTADOS ---
+  // --- 1. ESTADOS ---
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [hp, setHp] = useState(100);
   const [tokens, setTokens] = useState(0);
   const [currentQuestion, setCurrentQuestion] = useState<any>(null);
   const [gameState, setGameState] = useState('esperando');
   const [activeGlitches, setActiveGlitches] = useState<string[]>([]);
+  const [players, setPlayers] = useState<string[]>([]);
 
+  // --- 2. EFECTO DE CONEXIÓN ---
   useEffect(() => {
     const token = localStorage.getItem('glitch_token');
+    const userData = JSON.parse(localStorage.getItem('glitch_user') || '{}');
+    const myUsername = userData.username;
     
-    // 2. Si no hay token, no conectamos (esto evita errores innecesarios)
     if (!token) return;
 
-    console.log("🔌 Iniciando conexión con token:", token.substring(0, 10) + "...");
+    console.log("🔌 Conectando como:", myUsername);
     
     const socketUrl = `${url}?token=${token}`;
     const ws = new WebSocket(socketUrl);
+
     ws.onopen = () => {
       console.log("✅ ¡Conectado al Servidor de Batalla!");
-      // 🔥 CRÍTICO: Guardamos la instancia en el estado para que 'enviarRespuesta' pueda usarla
       setSocket(ws);
     };
 
@@ -31,10 +34,21 @@ export const useGameSocket = (url: string) => {
         console.log("📩 Mensaje del servidor:", msg);
 
         switch (msg.type) {
-          case 'estado': // Actualización general de stats
-            setHp(msg.data.hp);
-            setTokens(msg.data.tokens);
-            setGameState(msg.data.status);
+          // 🔥 NUEVO: Manejo de la lista de rivales
+          case 'lista_jugadores':
+            if (Array.isArray(msg.data)) {
+              // Filtramos nuestro propio nombre para no aparecer como rival
+              const rivals = msg.data.filter((name: string) => name !== myUsername);
+              console.log("👥 Rivales actualizados:", rivals);
+              setPlayers(rivals);
+            }
+            break;
+
+          case 'estado':
+            if (msg.data.hp !== undefined) setHp(msg.data.hp);
+            if (msg.data.tokens !== undefined) setTokens(msg.data.tokens);
+            if (msg.data.status) setGameState(msg.data.status);
+            
             if (msg.data.glitches) {
                setActiveGlitches(msg.data.glitches.map((g: string) => g.toLowerCase()));
             }
@@ -43,30 +57,39 @@ export const useGameSocket = (url: string) => {
           case 'pregunta':
             setCurrentQuestion(msg.data);
             setGameState('trivia');
-            setActiveGlitches([]); // Limpiamos efectos visuales al iniciar pregunta
+            setActiveGlitches([]); // Limpiamos efectos al iniciar trivia
             break;
 
           case 'inicio_ataque':
-          case 'ataque': // Dependiendo de cómo lo envíe tu backend
+          case 'ataque': 
             setGameState('ataque');
             break;
 
           case 'ataque_ejecutado':
-            // Si el ataque nos afecta a nosotros
-            setHp(msg.data.new_hp);
-            setActiveGlitches((prev) => [...prev, msg.data.attack.toLowerCase()]);
+            // Si el ataque viene con datos de HP, actualizamos
+            if (msg.data.new_hp !== undefined) setHp(msg.data.new_hp);
+            // Añadimos el efecto visual del ataque (ej: "blur")
+            if (msg.data.attack) {
+                setActiveGlitches((prev) => [...prev, msg.data.attack.toLowerCase()]);
+            }
             break;
 
           case 'fin_ronda':
             setGameState('esperando');
             setCurrentQuestion(null);
             break;
+
+          case 'eliminacion':
+             if (msg.data === myUsername) {
+                 setHp(0);
+             }
+             break;
             
           default:
             console.log("❓ Tipo de mensaje no reconocido:", msg.type);
         }
       } catch (err) {
-        console.error("❌ Error parseando JSON del servidor:", err);
+        console.error("❌ Error parseando JSON:", err);
       }
     };
 
@@ -79,27 +102,34 @@ export const useGameSocket = (url: string) => {
       console.error("🛠️ Error en WebSocket:", error);
     };
 
-    // Limpieza al desmontar el componente
-return () => {
+    return () => {
       ws.close();
     };
-}, [url, localStorage.getItem('glitch_token')]);
+  }, [url]); // Quitamos el localStorage de la dependencia para evitar bucles
 
-  // --- FUNCIÓN PARA ENVIAR RESPUESTAS ---
-  // Usamos useCallback para que la función sea estable entre renders
- const enviarAccion = useCallback((tipo: string, contenido: any) => {
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    const mensaje = JSON.stringify({
-      type: tipo, // Aquí irá "respuesta" o "ataque"
-      data: contenido
-    });
-    socket.send(mensaje);
-    console.log(`📤 Enviando ${tipo}:`, contenido);
-  } else {
-    console.error("❌ Socket desconectado");
-  }
-}, [socket]);
+  // --- 3. FUNCIÓN PARA ENVIAR ACCIONES ---
+  const enviarAccion = useCallback((tipo: string, contenido: any) => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const mensaje = JSON.stringify({
+        type: tipo,
+        data: contenido
+      });
+      socket.send(mensaje);
+      console.log(`📤 Enviando ${tipo}:`, contenido);
+    } else {
+      console.error("❌ Socket desconectado");
+    }
+  }, [socket]);
 
-  // Retornamos todo lo que App.tsx necesita
-  return { hp, tokens, currentQuestion, gameState, activeGlitches, enviarAccion };
+  // --- 4. RETORNO ---
+  // IMPORTANTE: Retornamos 'players' para que App.tsx lo use
+  return { 
+    hp, 
+    tokens, 
+    currentQuestion, 
+    gameState, 
+    activeGlitches, 
+    enviarAccion,
+    players 
+  };
 };
