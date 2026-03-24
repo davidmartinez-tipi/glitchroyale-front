@@ -65,12 +65,24 @@ export const useGameSocket = (url: string) => {
             setGameState('ataque');
             break;
 
-          case 'ataque_ejecutado':
-            // Si el ataque viene con datos de HP, actualizamos
-            if (msg.data.new_hp !== undefined) setHp(msg.data.new_hp);
-            // Añadimos el efecto visual del ataque (ej: "blur")
-            if (msg.data.attack) {
-                setActiveGlitches((prev) => [...prev, msg.data.attack.toLowerCase()]);
+         case 'ataque_ejecutado':
+            // 1. SI SOMOS LA VÍCTIMA 🩸
+            if (msg.data.target === myUsername) {
+                setHp(msg.data.new_hp); // Nos bajan la vida
+                
+                // Aplicamos el efecto de pantalla
+                const efecto = msg.data.attack.toLowerCase();
+                setActiveGlitches((prev) => [...prev, efecto]);
+                
+                // 🔥 La magia: Quitamos el efecto después de 3 segundos
+                setTimeout(() => {
+                    setActiveGlitches((prev) => prev.filter(g => g !== efecto));
+                }, 3000);
+            }
+
+            // 2. SI SOMOS EL ATACANTE 🪙
+            if (msg.data.attacker === myUsername) {
+                setTokens(msg.data.attacker_tokens); // Actualiza nuestro monedero
             }
             break;
 
