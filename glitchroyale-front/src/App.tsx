@@ -3,7 +3,6 @@ import { useGameSocket } from './hooks/useGameSocket';
 import { Login } from './components/Login';
 import './App.css';
 
-// Definición de ataques para la fase de combate
 const ARSENAL = [
   { id: 'Monstertify', cost: 1, label: '👺 MONSTERTIFY' },
   { id: 'Blur', cost: 2, label: '🌫️ BLUR' },
@@ -11,23 +10,28 @@ const ARSENAL = [
 ];
 
 function App() {
-  // --- 1. ESTADOS ---
+  // --- 1. CONFIGURACIÓN DE URLS DINÁMICAS ---
+  // Vite usará la variable de Vercel si existe, o localhost por defecto
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+  
+  // Transformamos la URL de HTTP/S a WS/S automáticamente
+  const WS_URL = API_BASE_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
+
+  // --- 2. ESTADOS ---
   const [user, setUser] = useState<any>(null);
   const [loadingRonda, setLoadingRonda] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // --- 2. HOOKS (Siempre en el nivel superior) ---
+  // --- 3. HOOKS (Usando la URL dinámica) ---
   const { hp, tokens, currentQuestion, gameState, activeGlitches, enviarAccion } = 
-    useGameSocket('wss://glitchroyale-backend.onrender.com/ws');
+    useGameSocket(WS_URL);
 
-  // --- 3. EFECTOS ---
-  // Cargar usuario persistente
+  // --- 4. EFECTOS ---
   useEffect(() => {
     const savedUser = localStorage.getItem('glitch_user');
     if (savedUser) setUser(JSON.parse(savedUser));
   }, []);
 
-  // Activar cámara para el Avatar
   useEffect(() => {
     if (user && videoRef.current) {
       navigator.mediaDevices.getUserMedia({ video: true })
@@ -36,7 +40,7 @@ function App() {
     }
   }, [user]);
 
-  // --- 4. FUNCIONES DE CONTROL ---
+  // --- 5. FUNCIONES DE CONTROL ---
   const handleLoginSuccess = (data: any) => {
     localStorage.setItem('glitch_token', data.token);
     localStorage.setItem('glitch_user', JSON.stringify(data));
@@ -52,8 +56,8 @@ function App() {
     setLoadingRonda(true);
     try {
       const token = localStorage.getItem('glitch_token');
-      // Enviamos el token en los headers por si el backend tiene la ruta protegida
-      const res = await fetch('https://glitchroyale-backend.onrender.com/api/start-round', {
+      // Usamos la constante dinámica API_BASE_URL
+      const res = await fetch(`${API_BASE_URL}/api/start-round`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
@@ -62,28 +66,24 @@ function App() {
     } catch (error) {
       console.error("❌ Error de red:", error);
     } finally {
-      setLoadingRonda(false);
+      // Pequeño delay para que el botón no parpadee demasiado rápido
+      setTimeout(() => setLoadingRonda(false), 1000);
     }
   };
 
   const lanzarAtaque = (rivalId: string, tipoAtaque: string) => {
-  // Ahora enviamos el tipo "ataque" y los datos limpios
-  enviarAccion("ataque", {
-    target_id: rivalId,
-    type: tipoAtaque
-  });
-};
+    enviarAccion("ataque", {
+      target_id: rivalId,
+      type: tipoAtaque
+    });
+  };
 
-  // --- 5. RENDERIZADO CONDICIONAL (LOGIN) ---
-  if (!user) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
-  }
+  // --- 6. RENDERIZADO ---
+  if (!user) return <Login onLoginSuccess={handleLoginSuccess} />;
 
-  // --- 6. RENDERIZADO PRINCIPAL (JUEGO) ---
   return (
     <div className={`game-container ${activeGlitches.map(g => `glitch-${g.toLowerCase()}`).join(' ')}`}>
       
-      {/* HUD SUPERIOR COMPACTO */}
       <header className="game-header">
         <div className="player-profile">
           <div className="avatar-frame">
@@ -108,7 +108,6 @@ function App() {
         </div>
       </header>
 
-      {/* BOTÓN ADMIN (FLOTANTE) */}
       <button 
         onClick={iniciarRonda} 
         disabled={loadingRonda}
@@ -118,17 +117,14 @@ function App() {
       </button>
 
       <main className="game-body">
-        
-        {/* ESTADO: ESPERANDO */}
         {gameState === 'esperando' && (
           <div className="waiting-screen">
             <h2 className="glitch-text">SISTEMA EN REPOSO</h2>
             <div className="loader"></div>
-            <p className="pulse">Esperando paquetes de datos del servidor...</p>
+            <p className="pulse">Esperando paquetes de datos...</p>
           </div>
         )}
 
-        {/* ESTADO: TRIVIA */}
         {gameState === 'trivia' && currentQuestion && (
           <div className="question-card animate-flicker">
             <span className="category-tag">DECODIFICANDO PREGUNTA...</span>
@@ -136,26 +132,24 @@ function App() {
             <div className="options-grid">
               {['A', 'B', 'C', 'D'].map((opt) => (
                 <button 
-  key={opt} 
-  className="option-btn"
-  onClick={() => enviarAccion("respuesta", opt)} // Enviamos tipo "respuesta"
->
-  {currentQuestion[`option_${opt.toLowerCase()}`]}
-</button>
+                  key={opt} 
+                  className="option-btn"
+                  onClick={() => enviarAccion("respuesta", opt)}
+                >
+                  {currentQuestion[`option_${opt.toLowerCase()}`]}
+                </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* ESTADO: ATAQUE */}
         {gameState === 'ataque' && (
           <div className="attack-console">
-            <h2 className="glitch-text" style={{ color: 'var(--neon-red)' }}>SISTEMA DE ATAQUE ONLINE</h2>
+            <h2 className="glitch-text" style={{ color: 'var(--neon-red)' }}>ATAQUE ONLINE</h2>
             <div className="rivals-grid">
-              {/* Mock de rival para probar la interfaz */}
               {['Rival_Alpha', 'Rival_Beta'].map(rival => (
                 <div key={rival} className="rival-card">
-                 <span className="rival-name">&gt; {rival}</span>
+                  <span className="rival-name">&gt; {rival}</span>
                   <div className="atk-buttons">
                     {ARSENAL.map(atk => (
                       <button 
@@ -174,12 +168,10 @@ function App() {
           </div>
         )}
 
-        {/* ESTADO: MUERTO */}
         {hp <= 0 && (
           <div className="game-over-screen">
             <h1 className="glitch-text">SISTEMA CRASHED</h1>
-            <p>HAS SIDO ELIMINADO DE LA RED</p>
-            <button onClick={() => window.location.reload()} className="option-btn">REINICIAR NÚCLEO</button>
+            <button onClick={() => window.location.reload()} className="option-btn">REINICIAR</button>
           </div>
         )}
       </main>
