@@ -11,10 +11,7 @@ const ARSENAL = [
 
 function App() {
   // --- 1. CONFIGURACIÓN DE URLS DINÁMICAS ---
-  // Vite usará la variable de Vercel si existe, o localhost por defecto
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-  
-  // Transformamos la URL de HTTP/S a WS/S automáticamente
   const WS_URL = API_BASE_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
 
   // --- 2. ESTADOS ---
@@ -22,8 +19,9 @@ function App() {
   const [loadingRonda, setLoadingRonda] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // --- 3. HOOKS (Usando la URL dinámica) ---
-  const { hp, tokens, currentQuestion, gameState, activeGlitches, enviarAccion } = 
+  // --- 3. HOOKS ---
+  // He añadido 'players' que debe venir de tu useGameSocket
+  const { hp, tokens, currentQuestion, gameState, activeGlitches, enviarAccion, players } = 
     useGameSocket(WS_URL);
 
   // --- 4. EFECTOS ---
@@ -56,17 +54,14 @@ function App() {
     setLoadingRonda(true);
     try {
       const token = localStorage.getItem('glitch_token');
-      // Usamos la constante dinámica API_BASE_URL
       const res = await fetch(`${API_BASE_URL}/api/start-round`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
       if (res.ok) console.log("🚀 Ronda iniciada con éxito");
-      else console.error("❌ El servidor rechazó la orden");
     } catch (error) {
       console.error("❌ Error de red:", error);
     } finally {
-      // Pequeño delay para que el botón no parpadee demasiado rápido
       setTimeout(() => setLoadingRonda(false), 1000);
     }
   };
@@ -82,7 +77,7 @@ function App() {
   if (!user) return <Login onLoginSuccess={handleLoginSuccess} />;
 
   return (
-    <div className={`game-container ${activeGlitches.map(g => `glitch-${g.toLowerCase()}`).join(' ')}`}>
+    <div className={`game-container ${(activeGlitches || []).map(g => `glitch-${g.toLowerCase()}`).join(' ')}`}>
       
       <header className="game-header">
         <div className="player-profile">
@@ -108,6 +103,7 @@ function App() {
         </div>
       </header>
 
+      {/* BOTÓN ADMIN */}
       <button 
         onClick={iniciarRonda} 
         disabled={loadingRonda}
@@ -117,14 +113,16 @@ function App() {
       </button>
 
       <main className="game-body">
+        {/* ESPERANDO */}
         {gameState === 'esperando' && (
           <div className="waiting-screen">
             <h2 className="glitch-text">SISTEMA EN REPOSO</h2>
             <div className="loader"></div>
-            <p className="pulse">Esperando paquetes de datos...</p>
+            <p className="pulse">Esperando rivales en la red...</p>
           </div>
         )}
 
+        {/* TRIVIA */}
         {gameState === 'trivia' && currentQuestion && (
           <div className="question-card animate-flicker">
             <span className="category-tag">DECODIFICANDO PREGUNTA...</span>
@@ -143,34 +141,43 @@ function App() {
           </div>
         )}
 
+        {/* ATAQUE MULTIJUGADOR REAL */}
         {gameState === 'ataque' && (
           <div className="attack-console">
             <h2 className="glitch-text" style={{ color: 'var(--neon-red)' }}>ATAQUE ONLINE</h2>
             <div className="rivals-grid">
-              {['Rival_Alpha', 'Rival_Beta'].map(rival => (
-                <div key={rival} className="rival-card">
-                  <span className="rival-name">&gt; {rival}</span>
-                  <div className="atk-buttons">
-                    {ARSENAL.map(atk => (
-                      <button 
-                        key={atk.id}
-                        disabled={tokens < atk.cost}
-                        onClick={() => lanzarAtaque(rival, atk.id)}
-                        className="atk-btn"
-                      >
-                        {atk.label} ({atk.cost}🪙)
-                      </button>
-                    ))}
+              {players && players.length > 0 ? (
+                players.map((rivalName: string) => (
+                  <div key={rivalName} className="rival-card">
+                    <span className="rival-name">&gt; {rivalName}</span>
+                    <div className="atk-buttons">
+                      {ARSENAL.map(atk => (
+                        <button 
+                          key={atk.id}
+                          disabled={tokens < atk.cost}
+                          onClick={() => lanzarAtaque(rivalName, atk.id)}
+                          className="atk-btn"
+                        >
+                          {atk.label} ({atk.cost}🪙)
+                        </button>
+                      ))}
+                    </div>
                   </div>
+                ))
+              ) : (
+                <div className="no-rivals">
+                  <p className="pulse">No hay otros sujetos detectados en la red...</p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
 
+        {/* GAME OVER */}
         {hp <= 0 && (
           <div className="game-over-screen">
             <h1 className="glitch-text">SISTEMA CRASHED</h1>
+            <p>HAS SIDO ELIMINADO</p>
             <button onClick={() => window.location.reload()} className="option-btn">REINICIAR</button>
           </div>
         )}
